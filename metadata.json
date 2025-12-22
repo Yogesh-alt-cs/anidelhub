@@ -1,0 +1,8 @@
+{
+  "name": "AniDel AI Hub",
+  "description": "A high-performance AI-powered dashboard for anime fans to generate characters, imagine scenes, and converse with AI companions using the latest Gemini models.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
