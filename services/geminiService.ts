@@ -11,7 +11,7 @@ export const ensureProModelKey = async () => {
     const hasKey = await window.aistudio.hasSelectedApiKey();
     if (!hasKey) {
       await window.aistudio.openSelectKey();
-      // Per instructions, we assume success after trigger to avoid race condition delays
+      // Proceeding after trigger to mitigate race conditions as per instructions
     }
   }
 };
@@ -34,12 +34,20 @@ export const handleAIError = async (error: any): Promise<string | null> => {
   } else if (error instanceof Error) {
     errorMessage = error.message;
   } else if (error && typeof error === 'object') {
-    errorMessage = error.message || JSON.stringify(error);
+    errorMessage = (error as any).message || JSON.stringify(error);
   } else {
     errorMessage = String(error);
   }
 
   console.error("Gemini API Error Detail:", error);
+
+  // Specific check for "Requested entity was not found" which indicates a key issue
+  if (errorMessage.includes("Requested entity was not found.")) {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      return "Neural Link Reset: Your API key project was not found or is invalid. Please select a valid key from a paid GCP project.";
+    }
+  }
 
   // Network or Fetch Errors
   if (
@@ -50,34 +58,33 @@ export const handleAIError = async (error: any): Promise<string | null> => {
     errorMessage.includes("Load failed") ||
     !window.navigator.onLine
   ) {
-    return "Neural Sync Lost: A network error occurred while reaching the manifestation matrix. Ensure your connection is stable and that no ad-blockers are interrupting the link.";
+    return "Neural Sync Lost: A network error occurred. Please check your internet link or neural bridge (ad-blockers can sometimes interfere).";
   }
 
   // Permission / Auth Errors
   if (
     errorMessage.includes("PERMISSION_DENIED") || 
     errorMessage.includes("403") || 
-    errorMessage.includes("Requested entity was not found") ||
     errorMessage.includes("API key not found")
   ) {
     if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
       await window.aistudio.openSelectKey();
-      return "Authorization Required: Please select a valid neural key from a paid GCP project to bridge the connection.";
+      return "Authorization Required: Please select a valid neural key from a paid GCP project to continue.";
     }
-    return "Neural Authorization Failed: Ensure your API key has the necessary permissions for advanced models.";
+    return "Neural Authorization Failed: Your current key does not have permission for this operation.";
   }
 
   // Rate Limiting
   if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
-    return "Neural Congestion: The model is currently overloaded. Please wait 30-60 seconds before attempting another sync.";
+    return "Neural Congestion: The model is currently overloaded. Please wait 30-60 seconds.";
   }
 
   // Safety
   if (errorMessage.includes("SAFETY") || errorMessage.includes("blocked")) {
-    return "Protocol Breach: The vision was declined due to internal safety filters. Try adjusting your request parameters.";
+    return "Protocol Breach: The vision was declined by internal safety filters. Try adjusting your prompt.";
   }
 
-  return errorMessage || "Neural Static: An unexpected interruption occurred during manifestation.";
+  return errorMessage || "Neural Static: An unexpected error occurred during manifestation.";
 };
 
 // Generic AI query for text generation tasks
@@ -196,7 +203,7 @@ export const imagineScene = async (
     return imageUrl;
   } catch (error: any) {
     const handledMessage = await handleAIError(error);
-    throw new Error(handledMessage || error.message || "Manifestation failure.");
+    throw new Error(handledMessage || (error as any).message || "Manifestation failure.");
   }
 };
 
@@ -211,7 +218,7 @@ export const searchInternet = async (query: string) => {
     });
     
     return {
-      text: response.text,
+      text: response.text || "",
       sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
         web: { title: chunk.web?.title || 'Source', uri: chunk.web?.uri }
       })).filter((s: any) => s.web.uri).map((s: any) => s.web) || []
@@ -247,11 +254,52 @@ export const getSceneSuggestions = async (): Promise<string[]> => {
     });
     return (response.text || "").split(',').map(s => s.trim()).filter(s => s !== "");
   } catch (error: any) {
-    return ["Cyberpunk Tokyo 2026", "A floating sky fortress", "Mecha battle in orbit"];
+    return ["Neo-Tokyo sunset", "Futuristic mecha repair shop", "Cyberpunk rain", "Ghibli style cottage", "Floating island"];
   }
 };
 
-// TTS
+// Audio Decoding (Manual PCM implementation as per guidelines)
+export async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+// Base64 Encoding (Manual implementation as per guidelines)
+export function encodeBase64(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Base64 Decoding (Manual implementation as per guidelines)
+export function decodeBase64(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Speech Generation using gemini-2.5-flash-preview-tts
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<string> => {
   try {
     const ai = createAIInstance();
@@ -260,35 +308,40 @@ export const generateSpeech = async (text: string, voiceName: string = 'Kore'): 
       contents: [{ parts: [{ text }] }],
       config: {
         responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName },
+          },
+        },
       },
     });
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("Neural speech synthesis failed.");
+    if (!base64Audio) throw new Error("No audio returned from TTS.");
     return base64Audio;
   } catch (error: any) {
-    const handledMessage = await handleAIError(error);
-    throw new Error(handledMessage || "Speech link failed.");
+    const msg = await handleAIError(error);
+    throw new Error(msg || "Speech generation failed.");
   }
 };
 
-export const generateVoicePreview = async (voiceName: string): Promise<string> => {
-  return generateSpeech(`Resonance check for voice matrix ${voiceName}.`, voiceName);
-};
+// Voice Preview helper for settings and companion
+export const generateVoicePreview = (voiceName: string) => 
+  generateSpeech(`Hello, I am ${voiceName}. Ready for synchronization.`, voiceName);
 
-// Nexus Category Intel
+// Fetch Upcoming Nexus (Search grounding report)
 export const fetchUpcomingNexus = async (category: string) => {
   try {
     const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Report for category: ${category}. Focus on 2025/2026 milestones.`,
+      contents: `Provide a detailed report on the future of ${category} in 2025 and 2026.`,
       config: { tools: [{ googleSearch: {} }] },
     });
+    
     return {
-      text: response.text,
+      text: response.text || "",
       sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
-        web: { title: chunk.web?.title || 'Source', uri: chunk.web?.uri }
+        web: { title: chunk.web?.title || 'Nexus Source', uri: chunk.web?.uri }
       })).filter((s: any) => s.web.uri).map((s: any) => s.web) || []
     };
   } catch (error: any) {
@@ -296,28 +349,3 @@ export const fetchUpcomingNexus = async (category: string) => {
     throw new Error(handledMessage || "Nexus bridge failed.");
   }
 };
-
-// Encoding/Decoding Helpers
-export function decodeBase64(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-  return bytes;
-}
-
-export function encodeBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-  }
-  return buffer;
-}
