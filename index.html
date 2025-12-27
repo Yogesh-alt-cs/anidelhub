@@ -13,9 +13,9 @@
         theme: {
           extend: {
             colors: {
-              primary: '#6366F1',
-              secondary: '#10B981',
-              accent: '#EC4899',
+              primary: 'var(--color-primary)',
+              secondary: 'var(--color-secondary)',
+              accent: 'var(--color-accent)',
               background: '#020617',
               card: 'rgba(30, 41, 59, 0.4)',
               foreground: '#F8FAFC',
@@ -41,7 +41,32 @@
       :root {
         scrollbar-width: none;
         -ms-overflow-style: none;
+        --color-primary: #6366F1;
+        --color-secondary: #10B981;
+        --color-accent: #EC4899;
       }
+
+      /* Theme: Deep Night (Default) */
+      .theme-deep-night {
+        --color-primary: #6366F1;
+        --color-secondary: #10B981;
+        --color-accent: #EC4899;
+      }
+
+      /* Theme: Cyber Pink */
+      .theme-cyber-pink {
+        --color-primary: #EC4899;
+        --color-secondary: #A855F7;
+        --color-accent: #6366F1;
+      }
+
+      /* Theme: Neon Green */
+      .theme-neon-green {
+        --color-primary: #10B981;
+        --color-secondary: #6366F1;
+        --color-accent: #F59E0B;
+      }
+
       ::-webkit-scrollbar { display: none; }
       
       body {
@@ -69,7 +94,7 @@
       }
 
       .gradient-bg {
-        background: linear-gradient(135deg, #6366F1 0%, #A855F7 50%, #EC4899 100%);
+        background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 50%, var(--color-accent) 100%);
       }
 
       .noise {
@@ -97,6 +122,66 @@
         box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
         border-color: rgba(99, 102, 241, 0.5) !important;
       }
+
+      .tab-content-enter {
+        animation: tab-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes tab-enter {
+        from {
+          opacity: 0;
+          transform: translateY(10px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .message-pop-left {
+        animation: message-pop-left 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      }
+
+      .message-pop-right {
+        animation: message-pop-right 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      }
+
+      @keyframes message-pop-left {
+        0% {
+          opacity: 0;
+          transform: scale(0.7) translateX(-30px) translateY(10px);
+          filter: blur(8px);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) translateX(0) translateY(0);
+          filter: blur(0px);
+        }
+      }
+
+      @keyframes message-pop-right {
+        0% {
+          opacity: 0;
+          transform: scale(0.7) translateX(30px) translateY(10px);
+          filter: blur(8px);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) translateX(0) translateY(0);
+          filter: blur(0px);
+        }
+      }
+
+      .shimmer {
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+        background-size: 200% 100%;
+        animation: shimmer 2s infinite;
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
     </style>
   <script type="importmap">
 {
@@ -109,7 +194,7 @@
 }
 </script>
 </head>
-  <body class="dark selection:bg-primary/40">
+  <body class="dark selection:bg-primary/40 theme-deep-night">
     <div class="noise"></div>
     <div id="root"></div>
   </body>

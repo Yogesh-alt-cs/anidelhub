@@ -1,11 +1,11 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { generateVoicePreview, decodeAudioData, decodeBase64 } from '../services/geminiService';
 
 const THEMES = [
-  { name: 'Deep Night', colors: 'from-slate-900 to-slate-800', accent: 'bg-primary' },
-  { name: 'Cyber Pink', colors: 'from-pink-900 to-slate-900', accent: 'bg-accent' },
-  { name: 'Neon Green', colors: 'from-emerald-900 to-slate-900', accent: 'bg-emerald-500' }
+  { id: 'deep-night', name: 'Deep Night', colors: 'from-slate-950 to-slate-900', accent: 'bg-[#6366F1]' },
+  { id: 'cyber-pink', name: 'Cyber Pink', colors: 'from-pink-950 to-slate-950', accent: 'bg-[#EC4899]' },
+  { id: 'neon-green', name: 'Neon Green', colors: 'from-emerald-950 to-slate-950', accent: 'bg-[#10B981]' }
 ];
 
 const VOICES = [
@@ -17,10 +17,17 @@ const VOICES = [
 
 const Settings: React.FC = () => {
   const [quality, setQuality] = useState('High');
-  const [theme, setTheme] = useState('Deep Night');
+  const [theme, setTheme] = useState(() => localStorage.getItem('anidel_theme') || 'deep-night');
   const [voice, setVoice] = useState('Kore');
   const [previewing, setPreviewing] = useState<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    // Apply theme to body
+    document.body.classList.remove('theme-deep-night', 'theme-cyber-pink', 'theme-neon-green');
+    document.body.classList.add(`theme-${theme}`);
+    localStorage.setItem('anidel_theme', theme);
+  }, [theme]);
 
   const handlePreviewVoice = async (vName: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -41,6 +48,12 @@ const Settings: React.FC = () => {
     } catch (err) {
       console.error(err);
       setPreviewing(null);
+    }
+  };
+
+  const handleAuthFix = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
     }
   };
 
@@ -66,6 +79,19 @@ const Settings: React.FC = () => {
               value={quality}
               onChange={setQuality}
             />
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-4 border-t border-white/5">
+              <div className="max-w-md">
+                <h4 className="font-black text-sm uppercase tracking-widest text-white mb-1">Authorization Bridge</h4>
+                <p className="text-xs text-muted leading-relaxed font-medium">Reset your neural link if you experience permission errors or model restrictions.</p>
+              </div>
+              <button 
+                onClick={handleAuthFix}
+                className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl font-black text-[10px] text-primary hover:bg-primary/10 transition-all uppercase tracking-[0.2em] shrink-0"
+              >
+                Re-Authorize Link
+              </button>
+            </div>
             
             <div className="space-y-6">
                <div className="flex flex-col">
@@ -116,12 +142,12 @@ const Settings: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {THEMES.map(t => (
                   <button
-                    key={t.name}
-                    onClick={() => setTheme(t.name)}
-                    className={`relative h-40 rounded-[2rem] border-4 overflow-hidden transition-all group ${theme === t.name ? 'border-primary shadow-2xl scale-[1.02]' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-[1.01]'}`}
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={`relative h-40 rounded-[2rem] border-4 overflow-hidden transition-all group ${theme === t.id ? 'border-primary shadow-2xl scale-[1.02]' : 'border-transparent opacity-60 hover:opacity-100 hover:scale-[1.01]'}`}
                   >
                     <div className={`absolute inset-0 bg-gradient-to-br ${t.colors}`}></div>
-                    <div className="absolute bottom-0 left-0 right-0 p-5 bg-black/40 backdrop-blur-md flex items-center justify-between">
+                    <div className="absolute bottom-0 left-0 right-0 p-5 bg-black/60 backdrop-blur-md flex items-center justify-between">
                        <span className="text-[10px] font-black uppercase tracking-widest text-white">{t.name}</span>
                        <div className={`w-3 h-3 rounded-full ${t.accent} shadow-lg`}></div>
                     </div>

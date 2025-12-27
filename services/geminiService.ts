@@ -3,43 +3,87 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { AnimeCharacter, AnimeStyle, AspectRatio, DetailLevel } from "../types";
 
 /**
- * Always use process.env.API_KEY directly when initializing GoogleGenAI.
+ * Helper to ensure a high-quality model has an appropriate API key context.
+ * For gemini-3-pro-image-preview, users MUST select their own API key.
+ */
+export const ensureProModelKey = async () => {
+  if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+    const hasKey = await window.aistudio.hasSelectedApiKey();
+    if (!hasKey) {
+      await window.aistudio.openSelectKey();
+      // Per instructions, we assume success after trigger to avoid race condition delays
+    }
+  }
+};
+
+/**
+ * Always creates a fresh instance of GoogleGenAI to ensure we use 
+ * the most up-to-date API key (especially after a user selects one in the dialog).
  */
 export const createAIInstance = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 /**
- * Enhanced error handling for user-friendly feedback.
+ * Enhanced error handling for user-friendly feedback and environment synchronization.
  */
 export const handleAIError = async (error: any): Promise<string | null> => {
-  const errorMessage = typeof error === 'string' ? error : (error?.message || error?.toString() || "");
+  let errorMessage = "";
+  if (typeof error === 'string') {
+    errorMessage = error;
+  } else if (error instanceof Error) {
+    errorMessage = error.message;
+  } else if (error && typeof error === 'object') {
+    errorMessage = error.message || JSON.stringify(error);
+  } else {
+    errorMessage = String(error);
+  }
+
   console.error("Gemini API Error Detail:", error);
 
-  if (errorMessage.includes("PERMISSION_DENIED") || errorMessage.includes("403") || errorMessage.includes("API_KEY_INVALID")) {
-    return "Neural Authorization Failed. The bridge to the AI core is restricted. Please verify your system configuration.";
+  // Network or Fetch Errors
+  if (
+    errorMessage.includes("Network error") || 
+    errorMessage.includes("fetch failed") || 
+    errorMessage.includes("NetworkError") || 
+    errorMessage.includes("Failed to fetch") || 
+    errorMessage.includes("Load failed") ||
+    !window.navigator.onLine
+  ) {
+    return "Neural Sync Lost: A network error occurred while reaching the manifestation matrix. Ensure your connection is stable and that no ad-blockers are interrupting the link.";
   }
 
+  // Permission / Auth Errors
+  if (
+    errorMessage.includes("PERMISSION_DENIED") || 
+    errorMessage.includes("403") || 
+    errorMessage.includes("Requested entity was not found") ||
+    errorMessage.includes("API key not found")
+  ) {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      return "Authorization Required: Please select a valid neural key from a paid GCP project to bridge the connection.";
+    }
+    return "Neural Authorization Failed: Ensure your API key has the necessary permissions for advanced models.";
+  }
+
+  // Rate Limiting
   if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
-    return "Neural Congestion. The matrix is overloaded. Please wait 60 seconds before retrying.";
+    return "Neural Congestion: The model is currently overloaded. Please wait 30-60 seconds before attempting another sync.";
   }
 
+  // Safety
   if (errorMessage.includes("SAFETY") || errorMessage.includes("blocked")) {
-    return "The model declined to manifest this vision due to safety protocols. Please adjust your prompt.";
+    return "Protocol Breach: The vision was declined due to internal safety filters. Try adjusting your request parameters.";
   }
 
-  if (errorMessage.includes("Network error") || errorMessage.includes("fetch failed") || errorMessage.includes("NetworkError")) {
-    return "Connectivity Interrupted. The neural bridge lost sync with the server. Check your network link.";
-  }
-  
-  return null;
+  return errorMessage || "Neural Static: An unexpected interruption occurred during manifestation.";
 };
 
-// Generic AI query for text generation tasks like Quiz questions
-// Fixes the missing export error in QuizMaster.tsx
+// Generic AI query for text generation tasks
 export const queryAssistant = async (prompt: string, history: any[] = []) => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -53,8 +97,8 @@ export const queryAssistant = async (prompt: string, history: any[] = []) => {
 
 // Character Forge: Using gemini-3-pro-preview
 export const forgeCharacter = async (prompt: string): Promise<AnimeCharacter> => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: `Create a detailed anime character based on this theme: ${prompt}. Design for the 2026 era.`,
@@ -104,8 +148,11 @@ export const imagineScene = async (
 ): Promise<string> => {
   const isUltra = detailLevel === 'Ultra';
   const model = isUltra ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-  const ai = createAIInstance();
   
+  if (isUltra) {
+    await ensureProModelKey();
+  }
+
   const qualityPrompt = isUltra ? "masterpiece, ultra-detailed, 8k resolution," : "high detail, professional digital art,";
   const parts: any[] = [];
   
@@ -118,11 +165,13 @@ export const imagineScene = async (
   }
 
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: model,
       contents: { parts },
       config: {
-        imageConfig: { aspectRatio: aspectRatio, ...(isUltra ? { imageSize: "2K" } : {}) }
+        imageConfig: { aspectRatio: aspectRatio, ...(isUltra ? { imageSize: "2K" } : {}) },
+        ...(isUltra ? { tools: [{ googleSearch: {} }] } : {})
       },
     });
 
@@ -142,7 +191,7 @@ export const imagineScene = async (
     }
     
     if (!imageUrl) {
-      throw new Error(refusalText ? `Neural Refusal: ${refusalText}` : "Neural static. No visual data returned.");
+      throw new Error(refusalText ? `Neural Refusal: ${refusalText}` : "Neural static: No visual data returned.");
     }
     return imageUrl;
   } catch (error: any) {
@@ -153,8 +202,8 @@ export const imagineScene = async (
 
 // Live Search: Uses Google Search grounding.
 export const searchInternet = async (query: string) => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Provide detailed report on: ${query}.`,
@@ -176,8 +225,8 @@ export const searchInternet = async (query: string) => {
 // Search Suggestions
 export const getSearchSuggestions = async (query: string): Promise<string[]> => {
   if (!query.trim()) return [];
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Provide 5 concise anime/tech search suggestions for: "${query}". Format as comma-separated list.`,
@@ -190,8 +239,8 @@ export const getSearchSuggestions = async (query: string): Promise<string[]> => 
 
 // Scene Suggestions
 export const getSceneSuggestions = async (): Promise<string[]> => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Generate 5 creative anime scene prompts for 2026. Comma-separated list.`,
@@ -204,8 +253,8 @@ export const getSceneSuggestions = async (): Promise<string[]> => {
 
 // TTS
 export const generateSpeech = async (text: string, voiceName: string = 'Kore'): Promise<string> => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text }] }],
@@ -229,8 +278,8 @@ export const generateVoicePreview = async (voiceName: string): Promise<string> =
 
 // Nexus Category Intel
 export const fetchUpcomingNexus = async (category: string) => {
-  const ai = createAIInstance();
   try {
+    const ai = createAIInstance();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Report for category: ${category}. Focus on 2025/2026 milestones.`,

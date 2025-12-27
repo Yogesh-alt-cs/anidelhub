@@ -86,7 +86,9 @@ function App() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-[120px] pointer-events-none"></div>
         
         <div className="z-10 h-full overflow-y-auto overflow-x-hidden">
-            {renderContent()}
+            <div key={activeTab} className="tab-content-enter h-full">
+              {renderContent()}
+            </div>
         </div>
       </div>
     </Layout>
