@@ -82,13 +82,17 @@ const SceneImaginer: React.FC = () => {
         customDetail || detail
       );
       setCurrentImage(imageUrl);
+      // Added missing properties to match GeneratedImage interface
       saveToHistory({ 
+        id: crypto.randomUUID(),
         url: imageUrl, 
         prompt: targetPrompt, 
         timestamp: Date.now(),
         style: customStyle || style,
         aspect: customAspect || aspect,
-        detail: customDetail || detail
+        detail: customDetail || detail,
+        isPinned: false,
+        isFavorite: false
       });
     } catch (error: any) {
       console.error(error);
@@ -101,10 +105,11 @@ const SceneImaginer: React.FC = () => {
   const handleVariation = (item: GeneratedImage) => {
     const variationPrompt = `${item.prompt}, alternative composition, variation`;
     setPrompt(variationPrompt);
-    setStyle(item.style);
+    // Cast string | AnimeStyle to AnimeStyle to match component state and handleGenerate signature
+    setStyle(item.style as AnimeStyle);
     setAspect(item.aspect);
     setDetail(item.detail);
-    handleGenerate(variationPrompt, item.style, item.aspect, item.detail);
+    handleGenerate(variationPrompt, item.style as AnimeStyle, item.aspect, item.detail);
   };
 
   const downloadImage = (url: string, fileName: string) => {

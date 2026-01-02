@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import CharacterForge from './components/CharacterForge';
 import AnimeArtist from './components/AnimeArtist';
+import WorldBuilder from './components/WorldBuilder';
+import ManifestRealm from './components/StoryGenerator'; // Keeping existing file reference but logic is transformed
 import LiveSearch from './components/LiveSearch';
 import LiveCompanion from './components/LiveCompanion';
 import Profile from './components/Profile';
@@ -62,8 +64,12 @@ function App() {
       case AppTab.FORGE:
         return <CharacterForge />;
       case AppTab.ARTIST:
-      case AppTab.IMAGINER: // Legacy fallback
+      case AppTab.IMAGINER:
         return <AnimeArtist />;
+      case AppTab.WORLD:
+        return <WorldBuilder />;
+      case AppTab.MANIFEST:
+        return <ManifestRealm />;
       case AppTab.SEARCH:
         return <LiveSearch />;
       case AppTab.ASSISTANT:

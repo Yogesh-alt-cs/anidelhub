@@ -1,29 +1,32 @@
 
-import React, { useState, useEffect } from 'react';
-import { forgeCharacter, imagineScene } from '../services/geminiService';
-import { AnimeCharacter } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { forgeCharacter, imagineScene, handleAIError } from '../services/geminiService';
+import { AnimeCharacter, CharacterOutfit } from '../types';
+
+const STAT_KEYS = ['strength', 'speed', 'intelligence', 'endurance', 'agility', 'luck'] as const;
 
 const CharacterForge: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [character, setCharacter] = useState<AnimeCharacter | null>(null);
   const [savedCharacters, setSavedCharacters] = useState<AnimeCharacter[]>([]);
   const [loading, setLoading] = useState(false);
-  const [portraitLoading, setPortraitLoading] = useState(false);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [manifestingOutfit, setManifestingOutfit] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [newOutfitName, setNewOutfitName] = useState('');
 
   useEffect(() => {
-    const saved = localStorage.getItem('anidel_characters');
+    const saved = localStorage.getItem('anidel_forge_archives_v2');
     if (saved) {
-      try {
-        setSavedCharacters(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load saved characters", e);
-      }
+      try { setSavedCharacters(JSON.parse(saved)); } catch (e) {}
     }
   }, []);
 
-  const handleGenerate = async () => {
+  const saveToDisk = (updated: AnimeCharacter[]) => {
+    setSavedCharacters(updated);
+    localStorage.setItem('anidel_forge_archives_v2', JSON.stringify(updated));
+  };
+
+  const handleForge = async () => {
     if (!prompt.trim()) return;
     setLoading(true);
     setApiError(null);
@@ -31,203 +34,288 @@ const CharacterForge: React.FC = () => {
       const result = await forgeCharacter(prompt);
       setCharacter(result);
     } catch (error: any) {
-      console.error(error);
-      setApiError(error.message || "Failed to forge character.");
+      const msg = await handleAIError(error);
+      setApiError(msg || "Neural resonance lost during forging.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGeneratePortrait = async () => {
-    if (!character || portraitLoading) return;
-    setPortraitLoading(true);
+  const handleManifestVisual = async (index: number) => {
+    if (!character || manifestingOutfit) return;
+    setManifestingOutfit(true);
     setApiError(null);
     try {
-      const portraitPrompt = `Anime character portrait of ${character.name}, ${character.title}. ${character.personality}. ${character.backstory}. Masterpiece, high detail.`;
-      const imageUrl = await imagineScene(portraitPrompt, 'Shonen', '1:1', 'High');
-      setCharacter(prev => prev ? { ...prev, portrait: imageUrl } : null);
+      const currentOutfit = character.outfits[index];
+      const visualPrompt = `Cinematic anime character concept art, ${character.name}, ${character.title}. Outfit: ${currentOutfit.name}. Traits: ${character.personality}. Masterpiece lighting, sharp details, high fidelity.`;
+      const imageUrl = await imagineScene(visualPrompt, 'Shonen', '3:4', 'High');
+      
+      const updatedOutfits = [...character.outfits];
+      updatedOutfits[index] = { ...currentOutfit, portrait: imageUrl };
+      
+      const updatedChar = { ...character, outfits: updatedOutfits, currentOutfitIndex: index };
+      setCharacter(updatedChar);
     } catch (error: any) {
-      console.error(error);
-      setApiError(error.message || "Failed to manifest portrait.");
+      const msg = await handleAIError(error);
+      setApiError(msg || "Visual manifestation failed.");
     } finally {
-      setPortraitLoading(false);
+      setManifestingOutfit(false);
     }
   };
 
-  const saveCharacter = () => {
+  const addOutfit = () => {
+    if (!character || !newOutfitName.trim()) return;
+    const updatedChar = {
+      ...character,
+      outfits: [...character.outfits, { name: newOutfitName, portrait: '' }],
+      currentOutfitIndex: character.outfits.length
+    };
+    setCharacter(updatedChar);
+    setNewOutfitName('');
+  };
+
+  const deleteOutfit = (index: number) => {
+    if (!character || character.outfits.length <= 1) return;
+    const updatedOutfits = character.outfits.filter((_, i) => i !== index);
+    setCharacter({
+      ...character,
+      outfits: updatedOutfits,
+      currentOutfitIndex: 0
+    });
+  };
+
+  const updateStat = (key: keyof AnimeCharacter['stats'], value: number) => {
     if (!character) return;
-    const isAlreadySaved = savedCharacters.some(c => c.id === character.id);
-    if (isAlreadySaved) {
-        // Update if already exists (for cases where portrait is generated later)
-        const updated = savedCharacters.map(c => c.id === character.id ? character : c);
-        setSavedCharacters(updated);
-        localStorage.setItem('anidel_characters', JSON.stringify(updated));
-        return;
+    setCharacter({
+      ...character,
+      stats: { ...character.stats, [key]: value }
+    });
+  };
+
+  const togglePin = (id: string) => {
+    const updated = savedCharacters.map(c => c.id === id ? { ...c, isPinned: !c.isPinned } : c);
+    saveToDisk(updated);
+  };
+
+  const archiveCharacter = () => {
+    if (!character) return;
+    const updated = [character, ...savedCharacters.filter(c => c.id !== character.id)].slice(0, 50);
+    saveToDisk(updated);
+  };
+
+  const removeCharacter = (id: string) => {
+    if (confirm("De-manifest this legend from the archives?")) {
+      const updated = savedCharacters.filter(c => c.id !== id);
+      saveToDisk(updated);
     }
-    const updated = [character, ...savedCharacters];
-    setSavedCharacters(updated);
-    localStorage.setItem('anidel_characters', JSON.stringify(updated));
   };
 
-  const exportCharacter = (char: AnimeCharacter) => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(char, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${char.name.replace(/\s+/g, '_')}_legend.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
+  const exportText = () => {
+    if (!character) return;
+    const text = `
+NAME: ${character.name}
+TITLE: ${character.title}
+PERSONALITY: ${character.personality}
+STATS: ${Object.entries(character.stats).map(([k, v]) => `${k.toUpperCase()}: ${v}`).join(', ')}
+MOVE: ${character.specialMove}
+BACKSTORY: ${character.backstory}
+    `.trim();
+    navigator.clipboard.writeText(text);
+    alert("Character dossier copied to clipboard.");
   };
 
-  const deleteSavedCharacter = (id: string) => {
-    const updated = savedCharacters.filter(c => c.id !== id);
-    setSavedCharacters(updated);
-    localStorage.setItem('anidel_characters', JSON.stringify(updated));
+  const exportJSON = () => {
+    if (!character) return;
+    const blob = new Blob([JSON.stringify(character, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${character.name}_data.json`;
+    link.click();
   };
 
-  const clearCollection = () => {
-    setSavedCharacters([]);
-    localStorage.removeItem('anidel_characters');
-    setShowClearConfirm(false);
-  };
+  const sortedArchives = useMemo(() => {
+    return [...savedCharacters].sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return 0;
+    });
+  }, [savedCharacters]);
 
   return (
-    <div className="p-4 md:p-10 lg:p-14 max-w-5xl mx-auto w-full pb-32">
-      <div className="mb-12 lg:mb-20">
-        <h2 className="text-5xl lg:text-7xl font-black mb-6 tracking-tighter leading-none italic">Character Forge</h2>
-        <p className="text-muted text-xl lg:text-2xl font-medium max-w-3xl leading-relaxed opacity-70">
-          Describe a destiny, a soul, or a hidden power to summon a new anime legend into the archives.
-        </p>
-      </div>
-
-      <div className="bg-card rounded-4xl lg:rounded-5xl p-8 lg:p-12 mb-12 flex flex-col md:flex-row gap-8 items-center md:items-end shadow-2xl relative border border-white/10 group transition-all">
-        <div className="absolute -top-12 -right-12 w-48 h-48 bg-primary/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-primary/20 transition-all"></div>
-        <div className="flex-1 w-full">
-          <label className="block text-[12px] font-black mb-4 text-primary uppercase tracking-[0.4em]">Synaptic Theme</label>
-          <input 
-            type="text" 
-            value={prompt}
-            disabled={loading}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g., A ronin haunted by lightning spirits..."
-            className="w-full bg-background border border-white/10 rounded-2xl lg:rounded-3xl px-8 py-5 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all font-bold text-lg lg:text-xl placeholder:text-muted/20 disabled:opacity-50"
-          />
+    <div className="p-6 md:p-12 lg:p-20 max-w-7xl mx-auto w-full pb-48">
+      <header className="mb-20">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-1.5 h-6 bg-primary rounded-full shadow-[0_0_15px_var(--color-primary)]"></div>
+          <p className="text-[10px] font-black uppercase tracking-[0.6em] text-primary">Neural Forge V4.2</p>
         </div>
-        <button 
-          onClick={handleGenerate}
-          disabled={loading}
-          className="w-full md:w-auto gradient-bg hover:scale-[1.02] active:scale-95 disabled:opacity-70 text-white font-black py-5 px-12 lg:px-16 rounded-2xl lg:rounded-3xl shadow-2xl transition-all flex items-center justify-center gap-3 shrink-0 uppercase tracking-widest text-sm relative overflow-hidden"
-        >
-          {loading ? (
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="animate-pulse">FORGING...</span>
-            </div>
-          ) : (
-            <span>Forge Legacy</span>
-          )}
-        </button>
+        <h2 className="text-6xl md:text-9xl font-black tracking-tighter italic leading-none mb-6">Forge Legend.</h2>
+        <p className="text-muted text-xl lg:text-2xl font-medium max-w-2xl opacity-70">Synthesize unique identities from the synaptic currents of the 2026 anime database.</p>
+      </header>
+
+      {/* Forging Input */}
+      <div className="glass rounded-[3rem] p-8 lg:p-14 mb-24 shadow-5xl border border-white/10 relative group overflow-hidden">
+        <div className="absolute top-0 left-0 w-2 h-full bg-primary opacity-20 group-hover:opacity-100 transition-opacity"></div>
+        <div className="space-y-10">
+          <div className="space-y-4">
+            <label className="text-[11px] font-black text-muted uppercase tracking-[0.4em]">Origin Prompt</label>
+            <textarea 
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="A cybernetic samurai with gravity-defying hair who wanders Neo-Tokyo..."
+              className="w-full bg-white/[0.04] border border-white/10 rounded-4xl px-8 py-8 focus:outline-none transition-ultra text-2xl lg:text-3xl font-black min-h-[180px] resize-none italic placeholder:opacity-20"
+            />
+          </div>
+          <button 
+            onClick={handleForge}
+            disabled={loading}
+            className="w-full gradient-bg hover:opacity-95 active:scale-[0.99] disabled:opacity-50 text-white font-black py-7 rounded-[2.5rem] shadow-6xl transition-ultra flex items-center justify-center gap-6 text-2xl tracking-[0.2em] uppercase italic border border-white/20"
+          >
+            {loading ? (
+              <div className="flex items-center gap-6">
+                <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                <span className="animate-pulse">FORGING SOUL...</span>
+              </div>
+            ) : 'FORGE ARCHETYPE'}
+          </button>
+        </div>
       </div>
 
       {apiError && (
-        <div className="mb-12 bg-red-500/10 border border-red-500/20 rounded-3xl p-8 flex items-center gap-8 animate-in slide-in-from-top-4">
-          <div className="w-14 h-14 rounded-2xl bg-red-500/20 flex items-center justify-center shrink-0 border border-red-500/30">
-            <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          </div>
-          <p className="text-red-300 font-bold text-base leading-relaxed">{apiError}</p>
+        <div className="mb-20 glass border-red-500/30 bg-red-500/5 p-8 rounded-4xl flex items-center gap-8 animate-in slide-in-from-top-4">
+          <div className="w-14 h-14 bg-red-500/20 rounded-2xl flex items-center justify-center text-red-500 shrink-0 border border-red-500/20"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg></div>
+          <div className="flex-1 text-red-300 font-bold">{apiError}</div>
         </div>
       )}
 
-      {character && !apiError && (
-        <div className={`animate-in fade-in zoom-in-95 duration-1000 mb-24 lg:mb-36 ${loading ? 'opacity-30 grayscale blur-[1px] transition-all' : 'transition-all'}`}>
-          <div className="bg-card rounded-5xl overflow-hidden shadow-2xl relative border border-white/5">
-            <div className="gradient-bg p-10 lg:p-16 text-white relative flex flex-col md:flex-row gap-10 items-center">
-              <div className="absolute top-0 right-0 p-10 lg:p-16 text-white/10 font-black text-8xl lg:text-9xl select-none leading-none pointer-events-none italic">
-                {character.stats.strength > 85 ? 'S+' : 'LGD'}
-              </div>
+      {/* Forged Character Workspace */}
+      {character && (
+        <div className="animate-in fade-in zoom-in-95 duration-1000 space-y-20">
+          <div className="glass rounded-[4rem] overflow-hidden border border-white/10 shadow-5xl relative">
+            <div className="grid grid-cols-1 xl:grid-cols-12">
               
-              {/* Portrait Display */}
-              <div className="w-48 h-48 lg:w-64 lg:h-64 rounded-3xl overflow-hidden bg-black/30 border-2 border-white/20 shadow-2xl shrink-0 relative group/portrait">
-                {character.portrait ? (
-                  <img src={character.portrait} alt={character.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center">
-                    {portraitLoading ? (
-                        <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin mb-3"></div>
-                    ) : (
-                        <svg className="w-12 h-12 text-white/20 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                    )}
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40">{portraitLoading ? 'Visualizing...' : 'No Portrait manifested'}</p>
-                  </div>
-                )}
-                {!character.portrait && !portraitLoading && (
-                  <button 
-                    onClick={handleGeneratePortrait}
-                    className="absolute inset-0 bg-black/60 opacity-0 group-hover/portrait:opacity-100 transition-opacity flex items-center justify-center p-6"
-                  >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white text-center">Tap to Manifest Visuals</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="relative z-20 flex-1">
-                <div className="mb-5 flex flex-wrap gap-3">
-                  <span className="px-4 py-1.5 bg-black/30 rounded-full text-[10px] font-black uppercase tracking-[0.3em] border border-white/20 shadow-xl">
-                    LEGEND SUMMONED
-                  </span>
-                  {!character.portrait && (
+              {/* Visual Panel */}
+              <div className="xl:col-span-5 p-8 lg:p-14 border-b xl:border-b-0 xl:border-r border-white/5 bg-white/[0.01]">
+                <div className="relative aspect-[3/4] rounded-[3rem] overflow-hidden bg-white/5 border border-white/10 shadow-3xl mb-12 group">
+                  {character.outfits[character.currentOutfitIndex].portrait ? (
+                    <img src={character.outfits[character.currentOutfitIndex].portrait} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" alt="" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center">
+                      {manifestingOutfit ? (
+                        <div className="flex flex-col items-center gap-6">
+                          <div className="w-20 h-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-primary animate-pulse italic">Visualizing Resonance</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6 opacity-30">
+                          <svg className="w-24 h-24 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          <p className="text-[10px] font-black uppercase tracking-widest italic">Awaiting Manifestation</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!character.outfits[character.currentOutfitIndex].portrait && !manifestingOutfit && (
                     <button 
-                        onClick={handleGeneratePortrait}
-                        disabled={portraitLoading}
-                        className="px-4 py-1.5 bg-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.3em] shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                      onClick={() => handleManifestVisual(character.currentOutfitIndex)}
+                      className="absolute inset-0 bg-primary/20 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-ultra flex items-center justify-center font-black text-xs uppercase tracking-[0.4em] text-white"
                     >
-                        {portraitLoading ? 'MANIFESTING...' : 'MANIFEST PORTRAIT'}
+                      Manifest Visual
                     </button>
                   )}
                 </div>
-                <h3 className="text-4xl lg:text-7xl font-black mb-3 tracking-tighter italic leading-none">{character.name}</h3>
-                <p className="text-xl lg:text-3xl font-bold opacity-80 italic mb-8">{character.title}</p>
-                
-                <div className="flex flex-col xs:flex-row gap-4">
-                  <button 
-                    onClick={saveCharacter}
-                    className="bg-white text-primary hover:scale-105 px-8 py-4 rounded-2xl text-[12px] font-black shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3 border border-white/20 uppercase tracking-widest"
-                  >
-                    {savedCharacters.some(c => c.id === character.id) ? 'SYNC UPDATE' : 'ADD TO COLLECTION'}
-                  </button>
-                  <button 
-                    onClick={() => exportCharacter(character)}
-                    className="bg-black/20 hover:bg-black/40 px-8 py-4 rounded-2xl text-[12px] font-black transition-all active:scale-95 border border-white/10 uppercase tracking-widest"
-                  >
-                    EXPORT DATA
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-10 lg:p-16 grid grid-cols-1 md:grid-cols-2 gap-16 lg:gap-24 bg-card/50 relative">
-              <div className="space-y-12">
-                <div>
-                  <h4 className="text-primary font-black uppercase tracking-[0.4em] text-[11px] mb-5 opacity-60 italic">Neural Origin</h4>
-                  <p className="text-foreground/90 leading-relaxed text-xl lg:text-2xl font-medium tracking-tight">{character.backstory}</p>
-                </div>
-                <div>
-                  <h4 className="text-secondary font-black uppercase tracking-[0.4em] text-[11px] mb-5 opacity-60 italic">Psych Core</h4>
-                  <p className="text-foreground/80 italic text-xl leading-relaxed">"{character.personality}"</p>
-                </div>
-                <div className="bg-white/5 rounded-4xl p-10 border border-white/5 shadow-inner group transition-all hover:bg-white/10">
-                  <h4 className="text-primary font-black uppercase tracking-[0.4em] text-[11px] mb-4 opacity-60 italic">Signature Move</h4>
-                  <p className="text-3xl lg:text-5xl font-black text-white group-hover:scale-105 transition-all origin-left italic">{character.specialMove}</p>
+
+                {/* Outfit Manager */}
+                <div className="space-y-6">
+                  <div className="flex justify-between items-end">
+                    <label className="text-[10px] font-black text-muted uppercase tracking-widest">Outfit Matrix</label>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {character.outfits.map((o, idx) => (
+                      <div key={idx} className="relative group/outfit">
+                        <button 
+                          onClick={() => setCharacter({ ...character, currentOutfitIndex: idx })}
+                          className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-ultra ${character.currentOutfitIndex === idx ? 'bg-primary border-primary text-white shadow-lg' : 'bg-white/5 border-white/5 text-muted hover:text-white'}`}
+                        >
+                          {o.name}
+                        </button>
+                        {character.outfits.length > 1 && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deleteOutfit(idx); }}
+                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full text-white flex items-center justify-center opacity-0 group-hover/outfit:opacity-100 transition-opacity hover:scale-110"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newOutfitName}
+                      onChange={(e) => setNewOutfitName(e.target.value)}
+                      placeholder="Add outfit name..."
+                      className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-[10px] font-black focus:outline-none"
+                    />
+                    <button onClick={addOutfit} className="p-3 glass rounded-2xl text-primary hover:bg-primary/20 transition-ultra">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-12">
-                <h4 className="text-muted font-black uppercase tracking-[0.4em] text-[11px] mb-8 opacity-60 text-center md:text-left italic">Combat Capabilities</h4>
-                <div className="space-y-10">
-                  <StatBar label="Power" value={character.stats.strength} color="bg-red-500" />
-                  <StatBar label="Speed" value={character.stats.agility} color="bg-emerald-500" />
-                  <StatBar label="Mind" value={character.stats.intelligence} color="bg-blue-500" />
-                  <StatBar label="Force" value={character.stats.charisma} color="bg-amber-500" />
+              {/* Data & Tuning Panel */}
+              <div className="xl:col-span-7 p-8 lg:p-14 flex flex-col h-full bg-background">
+                <header className="mb-14">
+                   <div className="flex items-center gap-3 mb-4">
+                      <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Manifesting Identity</span>
+                   </div>
+                   <h3 className="text-5xl lg:text-7xl font-black italic tracking-tighter mb-2 leading-none">{character.name}</h3>
+                   <p className="text-2xl lg:text-3xl font-bold italic text-muted/50 tracking-tight">{character.title}</p>
+                </header>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-10 lg:gap-14 mb-16">
+                  {STAT_KEYS.map(k => (
+                    <div key={k} className="space-y-4">
+                      <div className="flex justify-between items-end">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">{k}</span>
+                        <span className="text-2xl font-black italic text-primary">{character.stats[k]}</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" max="100" 
+                        value={character.stats[k]}
+                        onChange={(e) => updateStat(k, parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-white/5 rounded-full accent-primary"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-8 flex-1">
+                   <div className="glass-light p-8 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-primary/30 group-hover:bg-primary transition-colors"></div>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-primary/40 mb-3">Lore Background</h4>
+                      <p className="text-lg font-bold italic leading-relaxed">"{character.backstory}"</p>
+                   </div>
+                   <div className="glass-light p-8 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-accent/30 group-hover:bg-accent transition-colors"></div>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-accent/40 mb-3">Ultimate Resonator</h4>
+                      <p className="text-3xl lg:text-4xl font-black italic tracking-tighter">{character.specialMove}</p>
+                   </div>
+                </div>
+
+                <div className="mt-14 flex flex-wrap gap-4">
+                  <button onClick={archiveCharacter} className="flex-1 px-8 py-5 bg-white text-black font-black text-[10px] uppercase tracking-widest rounded-3xl hover:opacity-90 active:scale-95 transition-ultra shadow-2xl">Archive Legend</button>
+                  <div className="flex gap-2">
+                    <button onClick={exportText} className="p-5 glass rounded-3xl text-muted hover:text-white transition-ultra" title="Copy Dossier">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                    </button>
+                    <button onClick={exportJSON} className="p-5 glass rounded-3xl text-muted hover:text-white transition-ultra" title="Export JSON">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -235,126 +323,44 @@ const CharacterForge: React.FC = () => {
         </div>
       )}
 
+      {/* Archives Gallery */}
       {savedCharacters.length > 0 && (
-        <div className="mt-24">
-          <div className="flex items-center justify-between mb-16 pb-6 border-b border-white/10">
-            <h3 className="text-4xl font-black tracking-tight italic">The Archives</h3>
-            <button 
-              onClick={() => setShowClearConfirm(true)}
-              className="text-muted/40 hover:text-red-500 text-[11px] font-black uppercase tracking-[0.3em] px-6 py-3 rounded-2xl hover:bg-red-500/10 transition-all flex items-center gap-4"
-            >
-              WIPE ARCHIVE
-            </button>
+        <div className="mt-40">
+          <div className="flex items-center gap-10 mb-16">
+            <h3 className="text-3xl font-black italic tracking-tighter shrink-0">Synaptic Archives</h3>
+            <div className="flex-1 h-px bg-white/10"></div>
           </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-10">
-            {savedCharacters.map(char => (
-              <div key={char.id} className="bg-card p-10 rounded-4xl group hover:border-primary/40 transition-all hover:shadow-2xl hover:-translate-y-3 relative overflow-hidden border border-white/5 flex flex-col">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl rounded-full"></div>
-                <div className="flex justify-between items-start mb-6">
-                  <div className="flex gap-5 items-center flex-1 min-w-0">
-                    {char.portrait && (
-                        <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-xl shrink-0 border border-white/10">
-                            <img src={char.portrait} alt={char.name} className="w-full h-full object-cover" />
-                        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            {sortedArchives.map(char => (
+              <div 
+                key={char.id} 
+                className={`glass p-8 rounded-[3rem] transition-ultra group relative overflow-hidden border ${char.isPinned ? 'border-primary/50 bg-primary/5 shadow-2xl' : 'border-white/5 hover:border-primary/30 hover:-translate-y-2'}`}
+              >
+                {char.isPinned && <div className="absolute top-6 right-8 text-primary"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" /></svg></div>}
+                <div className="flex gap-6 items-center mb-8">
+                  <div className="w-24 h-24 rounded-[2rem] overflow-hidden bg-white/5 border border-white/10 shrink-0">
+                    {char.outfits[char.currentOutfitIndex].portrait && (
+                      <img src={char.outfits[char.currentOutfitIndex].portrait} className="w-full h-full object-cover transition-transform group-hover:scale-110" alt="" />
                     )}
-                    <div className="flex-1 overflow-hidden">
-                        <h4 className="font-black text-3xl truncate group-hover:text-primary transition-all italic">{char.name}</h4>
-                        <p className="text-[11px] text-muted font-black uppercase tracking-[0.3em] mt-1 italic">{char.title}</p>
-                    </div>
                   </div>
-                  <div className="flex gap-3 ml-4 shrink-0">
-                    <button 
-                      onClick={() => deleteSavedCharacter(char.id)}
-                      className="p-4 bg-red-500/5 rounded-2xl text-muted/40 hover:text-red-500 hover:bg-red-500/10 transition-all"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
+                  <div className="min-w-0">
+                    <h4 className="font-black text-2xl truncate group-hover:text-primary transition-ultra italic tracking-tight leading-none mb-1">{char.name}</h4>
+                    <p className="text-[9px] font-black text-muted uppercase tracking-[0.2em] truncate opacity-50">{char.title}</p>
                   </div>
                 </div>
-                
-                <p className="text-base text-muted font-medium leading-relaxed mb-8 line-clamp-3">
-                  {char.backstory}
-                </p>
-                
-                <div className="grid grid-cols-4 gap-4 mt-auto">
-                    <MiniStat color="bg-red-500" value={char.stats.strength} />
-                    <MiniStat color="bg-emerald-500" value={char.stats.agility} />
-                    <MiniStat color="bg-blue-500" value={char.stats.intelligence} />
-                    <MiniStat color="bg-amber-500" value={char.stats.charisma} />
+                <p className="text-sm text-muted font-bold line-clamp-2 italic mb-10 opacity-60 leading-relaxed">"{char.backstory}"</p>
+                <div className="flex gap-2">
+                   <button onClick={() => setCharacter(char)} className="flex-1 py-3 bg-white/5 border border-white/10 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-white/10 transition-all">Restore</button>
+                   <button onClick={() => togglePin(char.id)} className={`p-3 rounded-2xl border transition-all ${char.isPinned ? 'bg-primary border-primary text-white' : 'glass border-white/10 text-muted'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg></button>
+                   <button onClick={() => removeCharacter(char.id)} className="p-3 glass rounded-2xl text-muted hover:text-red-400 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {showClearConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-500">
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-md" onClick={() => setShowClearConfirm(false)}></div>
-          <div className="bg-card w-full max-w-md rounded-5xl p-12 shadow-2xl border border-white/10 relative z-10 animate-in zoom-in-95 duration-500 text-center">
-            <div className="w-24 h-24 bg-red-500/10 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-red-500/20">
-              <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            </div>
-            <h4 className="text-3xl font-black mb-3 italic">Purge Archive?</h4>
-            <p className="text-muted font-medium text-base mb-12 leading-relaxed px-4">
-              All forged legends will be permanently exiled from the neural database. This action is irreversible.
-            </p>
-            <div className="flex flex-col gap-4">
-              <button 
-                onClick={clearCollection}
-                className="w-full py-5 bg-red-500 text-white font-black rounded-2xl shadow-xl hover:bg-red-600 transition-all uppercase tracking-widest text-sm"
-              >
-                CONFIRM OBLITERATION
-              </button>
-              <button 
-                onClick={() => setShowClearConfirm(false)}
-                className="w-full py-5 bg-white/5 text-muted font-black rounded-2xl hover:text-white transition-all uppercase tracking-widest text-sm"
-              >
-                ABORT
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
-
-const StatBar = ({ label, value, color }: { label: string, value: number, color: string }) => {
-  const [animatedWidth, setAnimatedWidth] = useState(0);
-
-  useEffect(() => {
-    // Reset and then trigger animation when the value prop changes or on mount
-    setAnimatedWidth(0);
-    const timer = setTimeout(() => {
-      setAnimatedWidth(value);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [value]);
-
-  return (
-    <div className="group">
-      <div className="flex justify-between mb-3 items-end">
-        <span className="text-[12px] font-black uppercase tracking-[0.4em] text-muted/60 group-hover:text-white transition-all italic">{label}</span>
-        <span className="text-xl font-black italic">{value}<span className="text-[12px] text-muted opacity-40 ml-1">/ 100</span></span>
-      </div>
-      <div className="w-full bg-white/5 rounded-full h-3 p-0.5 border border-white/5 relative overflow-hidden shadow-inner">
-        <div 
-          className={`${color} h-full rounded-full transition-all duration-1000 ease-out relative group-hover:scale-y-110 shadow-lg`}
-          style={{ width: `${animatedWidth}%` }}
-        >
-          <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const MiniStat = ({ color, value }: { color: string, value: number }) => (
-  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5">
-    <div className={`h-full ${color} opacity-80 group-hover:opacity-100 transition-all shadow-xl`} style={{ width: `${value}%` }}></div>
-  </div>
-);
 
 export default CharacterForge;

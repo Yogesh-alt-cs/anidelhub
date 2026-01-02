@@ -38,9 +38,9 @@ const QuizMaster: React.FC = () => {
     setFeedback(null);
     setUserAnswer(null);
     try {
+      // Fix: Removed second argument from queryAssistant call to match definition in services/geminiService.ts
       const response = await queryAssistant(
-        `Generate one medium-difficulty multiple choice question about anime, manga, or future tech for an automated quiz. Question number ${num}. Provide exactly one question, 4 options, and state which one is correct. Format your response exactly as: Question: [text] | A: [text] | B: [text] | C: [text] | D: [text] | Correct: [letter]`,
-        []
+        `Generate one medium-difficulty multiple choice question about anime, manga, or future tech for an automated quiz. Question number ${num}. Provide exactly one question, 4 options, and state which one is correct. Format your response exactly as: Question: [text] | A: [text] | B: [text] | C: [text] | D: [text] | Correct: [letter]`
       );
 
       const text = response.text || "";
